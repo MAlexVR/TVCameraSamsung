@@ -1,134 +1,167 @@
-# Samsung VG-STC3000 Windows diagnostic 1.0.0
+# Samsung VG-STC3000 Windows camera utilities 1.0.0
 
-**Read-only diagnostic, NOT a functional firmware loader or signed driver.**
-This first test identifies the Windows driver binding and queries metadata that
-Microsoft's inbox UVC driver exposes. It does not initialize an unbooted camera,
-start video/audio, install a driver, modify the LED, or change Windows security.
+This independent Rust project provides read-only diagnostics and a guarded
+WinUSB RAM firmware initializer for the Samsung VG-STC3000. **Native compilation
+and portable tests do not establish hardware compatibility.** Signed-driver
+installation, firmware upload and video/audio operation still require testing
+with the physical camera.
 
-## What is included
+## Components
 
-- Independent Rust project with **zero Cargo dependencies**, Rust1.88+.
-- `inventory`: only present Samsung `04e8:205c`/`205d` PnP bindings/status.
-- `probe`: matching camera/capture interfaces, KS topology, candidate XU descriptor
-  and BASIC SUPPORT metadata for selectors3/4. It never follows SET support with
-  a write. It queries only interfaces bound to Microsoft's `usbvideo` service.
-- Parser/ABI/CLI tests and explicit refusal of `load`, even with extra arguments.
-- Build/run helpers that install nothing and do not request administrator access.
+- `inventory`: present Samsung `04e8:205c`/`205d` PnP bindings and status.
+- `probe`: read-only Microsoft UVC metadata queries; never sends UVC SET.
+- `inspect FIRMWARE`: validates the pinned firmware without USB access.
+- `load FIRMWARE`: uploads to cold boot `04e8:205c` through WinUSB, sends the RAM
+  boot command and waits for runtime `04e8:205d` to appear.
+- `driver/`: INF and administrative installer for Microsoft's inbox WinUSB.
 
-`samsung-camera-windows-test-win64.zip` includes the Windows x64 EXE and source;
-no Rust installation is needed to run that package. The separate `*-source.zip`
-contains source only. The EXE was cross-compiled and linked with Rust1.88/MinGW;
-its SDK layouts/constants and system-DLL imports were checked. It has not been
-executed on Windows or tested with the hardware. Cross-compilation is not native
-execution proof. It is unsigned and is still NOT a firmware loader or driver.
+The crate uses the parent project's tested AIT upload sequence. It has no
+third-party Cargo dependencies. No firmware, kernel driver, certificate or
+signing key is redistributed.
 
-## Optional per-user installation
+## WinUSB binding options
 
-The 1.0.0 diagnostic archive includes `installer/INSTALL.cmd`. Follow
-`installer/README.md`; it installs only the diagnostic, not a camera driver.
-It respects PowerShell policy and needs no administrator access.
+The fastest local-test route uses Microsoft's already signed inbox WinUSB. In
+Device Manager, manually select **WinUsb Device** only for the parent whose
+hardware ID is exactly `USB\VID_04E8&PID_205C`, then run
+`driver\CONFIGURE-INBOX.cmd` as administrator. The configuration script checks
+the binding and registers the loader interface GUID; it preserves existing GUIDs
+and rejects runtime `04e8:205d`. Follow the exact selection and rollback steps
+in `driver/README.md`.
+
+```bat
+powershell.exe -NoProfile -File driver\configure-inbox.ps1 -Check
+```
+
+For a distributable custom-INF package,
+`driver/samsung-vg-stc3000.inf` also requires a trusted signed
+`samsung-vg-stc3000.cat`. The catalog is currently absent. `driver\INSTALL.cmd`
+is only for that signed-package route and refuses missing/untrusted catalogs
+before calling PnPUtil.
+
+Neither route may match runtime `04e8:205d`, whose camera/audio functions remain
+on Microsoft's UVC drivers. Never enable test signing, install a test root
+certificate or disable Secure Boot/signature enforcement. No driver command is
+run by `BUILD.cmd`, the diagnostic runner or the per-user utility installer.
+
+## Quick test on Windows 11
+
+Extract the Windows ZIP to a normal local folder (not the per-user copy; the
+guide needs `driver\`) and run `TEST-CAMERA.cmd`. It verifies the EXE hash, runs
+the read-only inventory and reports the next step: select inbox WinUSB (see
+`driver/README.md`), run `driver\CONFIGURE-INBOX.cmd` as administrator, then:
+
+```bat
+TEST-CAMERA.cmd -Firmware C:\path	o\FalconFW.bin -Load
+```
+
+`-Load` asks you to type `LOAD` before sending firmware to RAM. If the camera is
+already initialized (`04e8:205d`) the guide stops and tells you to open the
+Windows Camera app. Build the ZIP with `python tools/package_release.py
+--windows-only` (needs the built EXE; output in `dist/`).
+
+## Setup installer
+
+`python tools/build_windows_installer.py` compiles `installer/samsung-camera.iss`
+with Inno Setup 6 into `dist/samsung-camera-1.0.0-windows-setup.exe`. It installs
+per user under `%LocalAppData%\SamsungCamera.0.0` without administrator rights,
+adds Start Menu shortcuts (test, diagnostics, WinUSB configuration via UAC) and an
+uninstaller. It installs no driver. The setup EXE is unsigned, so SmartScreen may warn.
+
+## Keeping the camera initialized
+
+Firmware lives in the camera's RAM, so it must be loaded after every cold boot,
+and Windows' USB selective suspend makes the camera reset a few minutes after it
+goes idle (observed: 3 to 4 minutes with no open stream, none in 8 minutes with
+one open and none in 6 minutes of idle with suspend disabled).
+
+- `AUTOLOAD-INSTALL.cmd` starts a per-user watcher at sign-in (a Startup-folder
+  shortcut, no admin, service or scheduled task). It loads the pinned firmware
+  whenever the cold camera, bound to WinUSB, appears, and it also turns USB
+  selective suspend off in the active power plan. `AUTOLOAD-REMOVE.cmd` stops it
+  and restores the saved power values. The log is
+  `%LocalAppData%\SamsungCamera\autoload.log`.
+- `usb-suspend.ps1 -Check | -Disable | -Restore` does only the power-plan part.
+
+## Hardware verification
+
+Verified once on Windows 11 with a VG-STC3000 on a direct USB port: local WinUSB
+binding, firmware upload (21335 blocks), re-enumeration as `04e8:205d`, MJPEG
+1280x720 at 30 fps (150 distinct frames in 5 s) and per-user installer
+install/uninstall. A tearing artifact seen in the Windows Camera app did not
+appear in raw MJPEG frames read directly. Not verified: other machines, USB 2
+hubs (the camera was unstable behind one), YUYV modes above 640x480, which can
+make the camera drop off the bus.
 
 ## Build on Windows
 
-With Rust and its matching Windows linker/SDK already installed, open a normal
-terminal in this directory and run:
+Install Rust with its matching Windows linker/SDK, then run in this directory:
 
 ```bat
 BUILD.cmd
 ```
 
-The helper runs offline tests/build and creates `samsung-camera-windows.exe`.
-It does not install Rust, an SDK, drivers, certificates or system components.
-If prerequisites are missing, stop and follow the official
-[Rust Windows installation documentation](https://rust-lang.github.io/rustup/installation/windows.html).
-Do not change execution policy, Secure Boot, signature enforcement, S mode or
-antivirus protection to make this test run. If security software blocks it,
-report the warning rather than disabling the protection. The resulting user-mode
-EXE is unsigned; no INF/SYS/CAT or kernel-driver signing claim is made.
+The helper runs offline locked tests and a release build, producing
+`samsung-camera-windows.exe`. It does not install Rust, drivers, certificates or
+system components. The resulting EXE is unsigned; that is separate from the
+mandatory signed driver catalog.
 
-## Run the diagnostic
-
-Connect the camera directly to the Windows machine. Close applications using it.
-Prefer testing its normal cold-connection boot state; do not initialize it on
-Linux just to hide a Windows boot-device failure. If it already identifies as
-runtime205d, report that distinction.
-
-```bat
-RUN-DIAGNOSTICS.cmd
-```
-
-Or run the individual commands:
-
-```bat
-samsung-camera-windows.exe inventory
-samsung-camera-windows.exe probe
-```
-
-The helper creates a new `samsung-camera-windows-report-*.txt` without overwriting
-an existing report. It contains JSON lines plus command exit summaries. Send that
-report back. No serial numbers, device-interface/instance paths, user/computer
-names, raw property buffers, video or microphone data are deliberately output.
-Only the target camera's service/class/status and capability metadata are saved.
-The inventory API must enumerate present PnP metadata to identify the target;
-other devices' entries are not reported.
-
-A nonzero probe exit can be a useful result: Windows may not expose the candidate
-controls. Preserve the report. Do not install WinUSB/Zadig, replace the camera or
-audio driver, unregister anything, flash firmware or guess another GUID/selector.
-
-## Optional Linux cross-build prerequisites
-
-For the maintainer's Linux build, the documented target is Windows x64 GNU.
-`build-linux.sh` checks prerequisites but never installs them. Once the MinGW
-linker and Rust1.88 Windows standard library exist:
+Optional Linux cross-build prerequisites are Rust 1.88's
+`x86_64-pc-windows-gnu` target and MinGW. From the parent project:
 
 ```sh
 bash windows/build-linux.sh
 ```
 
-Run that command from the parent project. The script produces
-`windows/samsung-camera-windows.exe`. This is still a diagnostic; building an
-executable does not establish native hardware support. Native Windows build can
-use its installed default target; only actually built/tested targets may be claimed.
+## Initialize the camera
 
-## Why firmware loading is deliberately unavailable
+Supply your own lawfully obtained `FalconFW.bin`. Only the known 682712-byte
+`AIT842SF` image with SHA-256
+`df71a001ec9045d9115b482f76cffe5e30dfac5fe26e7ef8a2bd25854af20b84`
+is accepted. Close camera/audio applications and connect the cold camera.
 
-Linux's verified uploader uses class/device request type0x20. A UVC extension
-property is routed by Windows through class/interface control semantics. That
-transport compatibility is not established for the boot device. Microsoft also
-requires several control queries during initialization and may hide a control
-when they fail; advertising SET does not prove the upload interface is usable.
+```bat
+samsung-camera-windows.exe inspect C:\path\to\FalconFW.bin
+samsung-camera-windows.exe load C:\path\to\FalconFW.bin
+```
 
-There is no universal `PROPSETID_VIDCAP_EXTENSION_UNIT` discovery GUID: the sample
-name stands for the actual descriptor GUID. Candidate unit6 GUID
-`23e49ed0-1178-4f31-ae52-d2fb8a8d3b48` was observed only on Linux runtime205d,
-not independently on boot205c. The probe checks the returned cached INFO GUID;
-no match or exposed metadata is a legitimate diagnostic failure.
+`load` refuses runtime `04e8:205d`, missing/ambiguous WinUSB interfaces and any
+USB descriptor other than boot `04e8:205c`. It uses class/device request `0x20`,
+request `1`, index `0x0600`, the tested 32-byte AIT chunks and final RAM boot
+command. Errors and short transfers stop immediately without retry. A reported
+success means runtime re-enumeration was detected, not that video/audio capture
+was tested. Firmware resides in RAM and must be loaded again after a cold boot.
 
-KS BASIC SUPPORT is **not raw USB GET_INFO/GET_LEN**. It is queried only as
-metadata; even successful output is not an instruction to send a write.
+## Diagnostics and optional per-user copy
+
+```bat
+RUN-DIAGNOSTICS.cmd
+```
+
+This creates a new `samsung-camera-windows-report-*.txt` without overwriting an
+existing report. Reports omit device paths, serials, user/computer names and
+media. `inventory` and `probe` do not upload firmware or install a driver.
+
+`installer/INSTALL.cmd` copies the utilities for the current user under
+`%LocalAppData%\SamsungCamera\1.0.0`; it does not install a driver. See
+`installer/README.md`. Existing installations are never overwritten and
+PowerShell execution policy is respected.
 
 ## Development checks
 
 ```sh
-cargo test --offline --manifest-path windows/Cargo.toml
-cargo check --offline --manifest-path windows/Cargo.toml --features check-windows-ffi
+cargo test --offline --locked --manifest-path windows/Cargo.toml
+cargo check --offline --locked --manifest-path windows/Cargo.toml --features check-windows-ffi
 ```
 
-The feature permits type-checking declarations on Linux. It does not turn Linux
-into Windows, link a Windows executable, run Win32 APIs, or verify native ABI.
-The independent crate does not modify Linux's Cargo manifest, firmware, loader,
-autoload service, image settings or LED behavior.
+The FFI feature permits type-checking declarations on another OS; it does not
+run Win32 APIs or verify hardware. Native Windows tests cover the CLI, firmware
+hash/guards and ABI layouts, but cannot simulate a successful camera upload.
 
 ## References and license
 
+- [Microsoft WinUSB installation and signed catalog requirement](https://learn.microsoft.com/windows-hardware/drivers/usbcon/winusb-installation)
+- [WinUsb_ControlTransfer](https://learn.microsoft.com/windows/win32/api/winusb/nf-winusb-winusb_controltransfer)
 - [Microsoft UVC extension requirements](https://learn.microsoft.com/windows-hardware/drivers/stream/device-requirements-for-usb-video-class-extension-units)
-- [Extension architecture](https://learn.microsoft.com/windows-hardware/drivers/stream/extension-unit-plug-in-architecture)
-- [Cached INFO metadata](https://learn.microsoft.com/windows-hardware/drivers/stream/ksproperty-extension-unit-info)
-- [Kernel-streaming properties](https://learn.microsoft.com/windows-hardware/drivers/stream/ks-properties)
-- [Microsoft SDK declarations](https://github.com/microsoft/win32metadata/tree/main/generation/WinSDK/RecompiledIdlHeaders/shared)
-- [Psypher9 guide](https://github.com/Psypher9/VG-STC-Driver): targets VG-STC5000,
-  not this3000; its implementation was not copied.
 
-New source: SPDX `GPL-3.0-only`; [license text](https://www.gnu.org/licenses/gpl-3.0.html).
-No Samsung firmware, third-party driver or certificate is redistributed here.
+New source: SPDX `GPL-3.0-only`. See the parent project's `LICENSE`.

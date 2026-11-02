@@ -23,13 +23,31 @@ function Assert-PlainPath([string]$Path) {
     }
 }
 
+function Get-Sha256 {
+    param([string]$LiteralPath, [string]$Algorithm)
+    if ($Algorithm -ne 'SHA256') { throw 'Only SHA256 is supported.' }
+    $stream = [System.IO.File]::Open($LiteralPath, [System.IO.FileMode]::Open,
+        [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
+    try {
+        $sha = [System.Security.Cryptography.SHA256]::Create()
+        try {
+            $hash = $sha.ComputeHash($stream)
+            return [System.BitConverter]::ToString($hash).Replace('-', '')
+        } finally {
+            $sha.Dispose()
+        }
+    } finally {
+        $stream.Dispose()
+    }
+}
+
 try {
     if ($Install -and $Check) { throw 'Choose either -Check or -Install.' }
     if ($ConfirmInstall -and -not $Install) { throw '-ConfirmInstall requires -Install.' }
     if (-not $Install -and -not $Check) {
         Write-Output 'Usage: powershell -NoProfile -File installer\install.ps1 -Check'
-        Write-Output 'To install this unsigned diagnostic for the current user, use -Install.'
-        Write-Output 'No camera driver, firmware loader or security changes are included.'
+        Write-Output 'To copy the unsigned camera utilities for the current user, use -Install.'
+        Write-Output 'This does not install the separately signed WinUSB boot driver.'
         exit 0
     }
     if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT -or -not [Environment]::Is64BitOperatingSystem) {
@@ -51,19 +69,18 @@ try {
         }
     }
     $status = Get-Content -LiteralPath (Join-Path $package 'PACKAGE_STATUS.json') -Raw | ConvertFrom-Json
-    if ($status.version -ne $version -or $status.target -ne 'x86_64-pc-windows-gnu' -or
-        $status.read_only -isnot [bool] -or -not $status.read_only -or
-        $status.firmware_loader_implemented -isnot [bool] -or $status.firmware_loader_implemented -or
-        $status.driver_package_included -isnot [bool] -or $status.driver_package_included -or
-        $status.windows_executable_included -isnot [bool] -or -not $status.windows_executable_included -or
-        $status.signature -ne 'unsigned') {
-        throw 'Package status must describe the unsigned read-only 1.0.0 diagnostic, not a driver.'
+    if ($status.version -ne $version -or
+        @('x86_64-pc-windows-gnu', 'x86_64-pc-windows-msvc') -notcontains $status.target -or
+        $status.read_only -isnot [bool] -or $status.read_only -or
+        $status.firmware_loader_implemented -isnot [bool] -or -not $status.firmware_loader_implemented -or
+        $status.windows_executable_included -isnot [bool] -or -not $status.windows_executable_included) {
+        throw 'Package status must describe the 1.0.0 camera utilities with firmware-loader support.'
     }
     if ($status.binary_sha256 -isnot [string] -or $status.binary_sha256 -notmatch '\A[0-9a-fA-F]{64}\z') {
         throw 'Package status has no valid binary SHA256.'
     }
     $expectedHash = $status.binary_sha256
-    $actualHash = (Get-FileHash -LiteralPath $entries[0].Source -Algorithm SHA256).Hash
+    $actualHash = (Get-Sha256 -LiteralPath $entries[0].Source -Algorithm SHA256)
     if ($actualHash -ne $expectedHash) { throw 'Executable SHA256 mismatch; nothing installed.' }
     if (-not $env:LOCALAPPDATA -or -not (Test-Path -LiteralPath $env:LOCALAPPDATA -PathType Container)) {
         throw 'A normal Windows user profile with LocalAppData is required.'
@@ -82,7 +99,7 @@ try {
         exit 0
     }
     if ($ConfirmInstall) {
-        Write-Output 'This installs an unsigned read-only diagnostic, NOT a camera driver or firmware loader.'
+        Write-Output 'This copies unsigned camera utilities, including the firmware loader; it does NOT install the camera driver.'
         $answer = Read-Host 'Type INSTALL to continue, or press Enter to cancel'
         if ($answer -cne 'INSTALL') { Write-Output 'Cancelled; nothing installed.'; exit 0 }
     }
@@ -101,7 +118,7 @@ try {
             [System.IO.File]::Copy($entry.Source, $destination, $false)
             $createdFiles += $destination
         }
-        $copiedHash = (Get-FileHash -LiteralPath (Join-Path $staging 'samsung-camera-windows.exe') -Algorithm SHA256).Hash
+        $copiedHash = (Get-Sha256 -LiteralPath (Join-Path $staging 'samsung-camera-windows.exe') -Algorithm SHA256)
         if ($copiedHash -ne $expectedHash) { throw 'Copied executable SHA256 mismatch.' }
         Assert-PlainPath $base
         Assert-PlainPath $target
@@ -122,8 +139,8 @@ try {
         }
         throw $installFailure
     }
-    Write-Output ('Installed diagnostic files only: ' + $target)
-    Write-Output 'Run RUN-DIAGNOSTICS.cmd there manually when ready. No camera access occurred during installation.'
+    Write-Output ('Installed per-user camera utilities only: ' + $target)
+    Write-Output 'No driver installation or camera access occurred. Run diagnostics or load firmware manually when ready.'
     exit 0
 } catch {
     Write-Error $_.Exception.Message
