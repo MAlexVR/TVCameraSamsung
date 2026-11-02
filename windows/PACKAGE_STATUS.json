@@ -1,0 +1,22 @@
+{
+  "artifact_kind": "source-only diagnostic",
+  "version": "1.0.0",
+  "target": "x86_64-pc-windows-gnu",
+  "windows_executable_included": false,
+  "cross_compile_link_verified": true,
+  "windows_native_execution_verified": false,
+  "windows_hardware_tested": false,
+  "firmware_loader_implemented": false,
+  "driver_package_included": false,
+  "signature": "unsigned",
+  "read_only": true,
+  "checks": {
+    "portable_tests": 11,
+    "linux_tests_with_ffi_layout": 12,
+    "windows_ffi_typecheck": true,
+    "installed_windows_header_abi": true,
+    "system_dll_imports_only": true
+  },
+  "installer_included": true,
+  "installer_native_execution_verified": false
+}

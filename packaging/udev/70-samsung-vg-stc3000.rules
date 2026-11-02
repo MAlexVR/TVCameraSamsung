@@ -1,0 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Boot identity only: initialized 04e8:205d must never trigger another upload.
+# Run the transfer in systemd, not inside the udev event worker.
+ACTION=="add", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="04e8", ATTR{idProduct}=="205c", ENV{BUSNUM}=="[0-9][0-9][0-9]", ENV{DEVNUM}=="[0-9][0-9][0-9]", TAG+="systemd", ENV{SYSTEMD_WANTS}+="samsung-camera-load@$env{BUSNUM}-$env{DEVNUM}.service"
