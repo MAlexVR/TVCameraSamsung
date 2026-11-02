@@ -1,0 +1,36 @@
+; SPDX-License-Identifier: GPL-3.0-only
+; WinUSB is used only for RAM initialization of the cold boot device.
+; The initialized 04e8:205d UVC camera/audio device is intentionally not matched.
+
+[Version]
+Signature   = "$Windows NT$"
+Class       = USBDevice
+ClassGuid   = {88BAE032-5A81-49f0-BC3D-A4FF138216D6}
+Provider    = %ProviderName%
+CatalogFile = samsung-vg-stc3000.cat
+DriverVer   = 11/02/2026,1.0.0.0
+PnpLockdown = 1
+
+[Manufacturer]
+%ProviderName% = SamsungCamera,NTamd64
+
+[SamsungCamera.NTamd64]
+%DeviceName% = SamsungCamera_Install, USB\VID_04E8&PID_205C
+
+[SamsungCamera_Install]
+Include = winusb.inf
+Needs   = WINUSB.NT
+
+[SamsungCamera_Install.Services]
+Include = winusb.inf
+Needs   = WINUSB.NT.Services
+
+[SamsungCamera_Install.HW]
+AddReg = SamsungCamera_AddReg
+
+[SamsungCamera_AddReg]
+HKR,,DeviceInterfaceGUIDs,0x10000,"{889992a2-9243-4ba5-beb7-7d0b029e11a0}"
+
+[Strings]
+ProviderName = "TVCameraSamsung contributors"
+DeviceName   = "Samsung VG-STC3000 firmware boot (WinUSB)"
