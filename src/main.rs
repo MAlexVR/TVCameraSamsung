@@ -17,7 +17,8 @@ and initialized USB identities; firmware upload remains boot-only.
 led-info sends read-only UVC capability/length queries, never SET_CUR. led is an
 explicit historical LED-command test; confirmation and compatible replies are
 required. It does not implement an automatic activity/privacy indicator.
-Windows transport is not implemented.";
+The independent windows crate provides WinUSB RAM initialization; its signed
+boot-driver package and native hardware validation are separate requirements.";
 
 fn main() {
     let args = std::env::args_os()

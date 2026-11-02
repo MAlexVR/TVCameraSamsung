@@ -8,29 +8,45 @@ fn cli(args: &[&str]) -> std::process::Output {
 }
 
 #[test]
-fn help_identifies_read_only_scope_and_unimplemented_upload() {
+fn help_identifies_diagnostics_inspection_and_guarded_upload() {
     let out = cli(&["--help"]);
     assert!(out.status.success());
     let text = String::from_utf8_lossy(&out.stdout);
     for required in [
         "inventory",
         "probe",
+        "inspect FIRMWARE",
+        "load FIRMWARE",
         "read-only",
-        "not implemented",
-        "No driver installation",
+        "signed WinUSB driver package",
+        "does not install a driver",
     ] {
         assert!(text.contains(required), "missing {required}");
     }
 }
 
 #[test]
-fn upload_is_refused_before_access_even_with_force_like_arguments() {
+fn upload_arguments_are_exact_and_invalid_firmware_is_rejected_before_usb() {
     for args in [vec!["load"], vec!["load", "FalconFW.bin", "--force"]] {
         let out = cli(&args);
         assert!(!out.status.success());
         assert!(out.stdout.is_empty());
-        assert!(String::from_utf8_lossy(&out.stderr).contains("No device opened"));
+        assert!(String::from_utf8_lossy(&out.stderr).contains("Usage"));
     }
+    let manifest = concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml");
+    let out = cli(&["load", manifest]);
+    assert!(!out.status.success());
+    assert!(out.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("682712"));
+}
+
+#[test]
+fn inspect_rejects_invalid_firmware_without_usb_access() {
+    let manifest = concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml");
+    let out = cli(&["inspect", manifest]);
+    assert!(!out.status.success());
+    assert!(out.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("682712"));
 }
 
 #[test]

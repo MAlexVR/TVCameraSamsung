@@ -13,4 +13,4 @@ cargo build --offline --locked --release --target-dir "%~dp0build"
 if errorlevel 1 exit /b 1
 copy /y "%~dp0build\release\samsung-camera-windows.exe" "%~dp0samsung-camera-windows.exe" >nul
 if errorlevel 1 exit /b 1
-echo Built the read-only diagnostic. Firmware upload is NOT implemented.
+echo Built the Windows camera utilities. A signed WinUSB catalog is still required for driver installation.

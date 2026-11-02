@@ -14,4 +14,4 @@ export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc
 cargo +1.88.0 build --manifest-path "$here/Cargo.toml" --release --offline --locked \
   --target x86_64-pc-windows-gnu --target-dir "$here/build"
 cp -- "$here/build/x86_64-pc-windows-gnu/release/samsung-camera-windows.exe" "$here/samsung-camera-windows.exe"
-printf '%s\n' 'Built read-only Windows x64 diagnostic; native hardware tests are still required.'
+printf '%s\n' 'Built Windows x64 camera utilities; signed driver installation and native hardware tests are still required.'

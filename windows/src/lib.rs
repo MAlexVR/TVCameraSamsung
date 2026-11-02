@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use std::fmt;
 
+pub mod firmware;
+
 #[cfg(any(windows, feature = "check-windows-ffi"))]
 #[cfg_attr(not(windows), allow(dead_code))]
 pub mod native;

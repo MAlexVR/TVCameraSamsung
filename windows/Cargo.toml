@@ -4,7 +4,7 @@ version = "1.0.0"
 edition = "2021"
 rust-version = "1.88"
 license = "GPL-3.0-only"
-description = "Read-only VG-STC3000 Windows binding and UVC capability diagnostics"
+description = "VG-STC3000 Windows diagnostics and guarded WinUSB firmware initializer"
 
 [workspace]
 
@@ -12,3 +12,4 @@ description = "Read-only VG-STC3000 Windows binding and UVC capability diagnosti
 check-windows-ffi = []
 
 [dependencies]
+samsung-camera = { path = ".." }

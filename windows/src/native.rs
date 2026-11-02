@@ -1,12 +1,30 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Windows-only metadata API. No driver installation, SET, capture or upload path.
+//! Windows metadata and guarded WinUSB transport. Driver installation is separate.
 use crate::{Guid, NodeProperty, Property, DEV_SPECIFIC, UNIT6_CANDIDATE};
+use samsung_camera::{Transport, INDEX};
 use std::collections::HashSet;
 use std::ffi::c_void;
 use std::mem::{size_of, zeroed};
 use std::ptr;
 
+mod winusb;
+pub use winusb::load;
+
 type Handle = isize;
+pub const WINUSB_INTERFACE: Guid = Guid {
+    a: 0x889992a2,
+    b: 0x9243,
+    c: 0x4ba5,
+    d: [0xbe, 0xb7, 0x7d, 0x0b, 0x02, 0x9e, 0x11, 0xa0],
+};
+#[repr(C)]
+struct SetupPacket {
+    request_type: u8,
+    request: u8,
+    value: u16,
+    index: u16,
+    length: u16,
+}
 const VIDEO_CAMERA: Guid = Guid {
     a: 0xe5323777,
     b: 0xf976,
@@ -112,6 +130,28 @@ unsafe extern "system" {
         overlapped: *mut c_void,
     ) -> i32;
 }
+#[cfg_attr(windows, link(name = "winusb"))]
+unsafe extern "system" {
+    fn WinUsb_Initialize(device: Handle, interface: *mut Handle) -> i32;
+    fn WinUsb_Free(interface: Handle) -> i32;
+    fn WinUsb_GetDescriptor(
+        interface: Handle,
+        descriptor_type: u8,
+        index: u8,
+        language_id: u16,
+        buffer: *mut u8,
+        buffer_length: u32,
+        transferred: *mut u32,
+    ) -> i32;
+    fn WinUsb_ControlTransfer(
+        interface: Handle,
+        setup: SetupPacket,
+        buffer: *mut u8,
+        buffer_length: u32,
+        transferred: *mut u32,
+        overlapped: *mut c_void,
+    ) -> i32;
+}
 #[cfg_attr(windows, link(name = "cfgmgr32"))]
 unsafe extern "system" {
     fn CM_Get_DevNode_Status(status: *mut u32, problem: *mut u32, instance: u32, flags: u32)
@@ -119,7 +159,7 @@ unsafe extern "system" {
 }
 
 fn error(operation: &str, code: u32) -> String {
-    format!("{operation}: Windows error {code}; no device writes sent")
+    format!("{operation}: Windows error {code}")
 }
 struct Set(Handle);
 impl Drop for Set {
@@ -233,11 +273,27 @@ impl Drop for Device {
 }
 impl Device {
     fn open(path: &[u16]) -> Result<Self, String> {
+        Self::open_with_access(path, 0x80000000, 0x80, "Open camera metadata filter")
+    }
+    fn open_winusb(path: &[u16]) -> Result<Self, String> {
+        // WinUsb_Initialize requires FILE_FLAG_OVERLAPPED; without it it fails with error 6.
+        Self::open_with_access(
+            path,
+            0xc0000000,
+            0x80 | 0x4000_0000,
+            "Open Samsung WinUSB device",
+        )
+    }
+    fn open_with_access(
+        path: &[u16],
+        access: u32,
+        flags: u32,
+        operation: &str,
+    ) -> Result<Self, String> {
         // SAFETY: path is a verified bounded, NUL-terminated UTF-16 buffer.
-        // GENERIC_READ only; FILE_SHARE_READ|WRITE does not grant write access.
-        let h = unsafe { CreateFileW(path.as_ptr(), 0x80000000, 3, ptr::null(), 3, 0x80, 0) };
+        let h = unsafe { CreateFileW(path.as_ptr(), access, 3, ptr::null(), 3, flags, 0) };
         if h == -1 || h == 0 {
-            return Err(error("Open camera metadata filter", unsafe {
+            return Err(format!("{operation}: Windows error {}", unsafe {
                 GetLastError()
             }));
         }
@@ -476,7 +532,7 @@ fn probe() -> Result<usize, String> {
 }
 
 pub fn run(with_probe: bool) -> Result<(), String> {
-    println!("{{\"kind\":\"scope\",\"version\":\"0.1.0\",\"architecture\":{},\"read_only\":true,\"firmware_upload\":false}}",crate::quote(std::env::consts::ARCH));
+    println!("{{\"kind\":\"scope\",\"version\":\"1.0.0\",\"architecture\":{},\"read_only\":true,\"firmware_upload_available\":true,\"driver_installation\":false}}",crate::quote(std::env::consts::ARCH));
     if inventory()? == 0 {
         return Err(
             "No present Samsung 04e8:205c/205d hardware IDs found; no driver changes made".into(),
